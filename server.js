@@ -87,7 +87,6 @@ io.on('connection', (socket) => {
           io.to(roomId).emit('paddle hit', id);
         }
       }
-      // io.in(roomId).emit('updateBall', ball);
       io.to(players.player1.playerId).emit('updateBall', ball);
       io.to(players.player2.playerId).emit('updateBall', ball);
     })
