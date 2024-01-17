@@ -13,10 +13,6 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/index.html');
 });
 
-// const players = {};
-let ball = { x: 300, y: 300, dx: 2, dy: 2 };
-let scores = { player1: 0, player2: 0 };
-let rooms = {};
 let waitingPlayers = [];
 let games = []
 
@@ -27,10 +23,11 @@ io.on('connection', (socket) => {
     waitingPlayers.push({ playerId: socket.id });
     if (waitingPlayers.length >= 2) {
       const roomId = generateRoomId();
-      const game = await generateGame(socket, roomId);
+      await socket.join(roomId);
+      const game = await generateGame(roomId);
       if (game) {
-        io.to(game.players.player1.playerId).emit('id', game.players.player1.playerId);
-        io.to(game.players.player2.playerId).emit('id', game.players.player2.playerId);
+        io.to(game.players.player1.playerId).emit('id', { id: game.players.player1.playerId, num: 1 });
+        io.to(game.players.player2.playerId).emit('id', { id: game.players.player2.playerId, num: 2 });
         io.to(game.players.player1.playerId).emit('game', game);
         io.to(game.players.player2.playerId).emit('game', game);
         setTimeout(() => {
@@ -44,62 +41,64 @@ io.on('connection', (socket) => {
   // Update the player position
   socket.on('movePaddle', ({ paddle, room, id, myId }) => {
     games.forEach(game => {
-      game.roomId === room && const index = game.paddles.findIndex(idx => idx.id === myId);
-      index !== -1 && (game.paddles[index] = paddle); 
-      io.to(id).emit('updatePaddle', paddle);
+      if (game.roomId === room) {
+        var index = game.paddles.findIndex(idx => idx.id === myId);
+        index !== -1 && (game.paddles[index] = paddle);
+        io.to(id).emit('updatePaddle', paddle);
+      }
     })
   });
 
   setInterval(() => {
-    games.forEach(({ ball, room, players }) => {
-      log(ball);
-      ball.x += ball.dx;
-      ball.y += ball.dy;
+    games.forEach(({ ball, roomId, paddles, scores, players }) => {
+      ball.x += ball.speedX;
+      ball.y += ball.speedY;
 
-      if (ball.y <= 0 || ball.y >= 600) {
-        ball.dy *= -1;
-      }
-
-      // Check for collision with paddles
-      if (
-        (ball.x - ball.radius < players.player1?.paddle?.x + players.player1.paddle.width &&
-          ball.y > players.player1.paddle.y &&
-          ball.y < players.player1.paddle.y + players.player1.paddle.height) ||
-        (ball.x + ball.radius > players.player2.paddle.x &&
-          ball.y > players.player2.paddle.y &&
-          ball.y < players.player2.paddle.y + players.player2.paddle.height)
-      ) {
-        ball.speedX = -ball.speedX;
+      if (ball.y <= 0 || ball.y >= 300) {
+        ball.speedY *= -1;
       }
 
       // Check for scoring
-      if (ball.x <= 0 || ball.x >= 600) {
+      if (ball.x <= 0 || ball.x >= 500) {
         if (ball.x <= 0) {
           scores.player2++;
         } else {
           scores.player1++;
         }
-        io.to(room).emit('update scores', scores);
-        io.to(room).emit('scored');
-        ball = { x: 250, y: 150, dx: 2, dy: 2, radius: 5, speedX: 2, speedY: 2  };
+        ball.x = 250;
+        ball.y = 150;
+        ball.speedX = -ball.speedX;
+        io.to(players.player1.playerId).emit('update scores', scores);
+        io.to(players.player2.playerId).emit('update scores', scores);
+        io.to(players.player1.playerId).emit('scored');
+        io.to(players.player2.playerId).emit('scored');
       }
 
-      io.to(room).emit('updateBall', ball);
+      // Check for collision with paddles
+      for (const id in paddles) {
+        const paddle = paddles[id];
+        if (
+          ball.x >= paddle.x &&
+          ball.x <= paddle.x + paddle.width &&
+          ball.y >= paddle.y &&
+          ball.y <= paddle.y + paddle.height
+        ) {
+          ball.speedX *= -1;
+          io.to(roomId).emit('paddle hit', id);
+        }
+      }
+      // io.in(roomId).emit('updateBall', ball);
+      io.to(players.player1.playerId).emit('updateBall', ball);
+      io.to(players.player2.playerId).emit('updateBall', ball);
     })
-  }, 1000 / 30);
+  }, 1000 / 10);
 
   // Handle player disconnection
   socket.on('disconnect', () => {
     console.log('A user disconnected');
     const playerId = socket.id;
-    // games.forEach(game => {
-    //   game.players.m
-    // })
-    // const player = players[playerId];
-    // if (player) {
-    // delete players[playerId];
-    // io.to(player.room).emit('current players', getPlayersInRoom(player.room));
-    // }
+
+    handlePlayerDisconnect(playerId);
   });
 
 
@@ -113,24 +112,7 @@ io.on('connection', (socket) => {
     }
     return result;
   }
-
-  // Function to get players in a specific room
-  function getPlayersInRoom(room, players) {
-    const playersInRoom = {};
-    for (const playerId in players) {
-      const player = players[playerId];
-      if (player.roomId === room) {
-        playersInRoom[playerId] = player;
-      }
-    }
-    return playersInRoom;
-  }
 });
-
-function getPlayers(id) {
-  const found = games.players.find(item => item.playerId === id)
-  return found;
-}
 
 function findPaddleAndUpdate(game, playerId, paddle) {
   return game.paddles.find(item => item.id === playerId && paddle);
@@ -145,12 +127,10 @@ function getGame(room, games) {
   return null;
 }
 
-async function generateGame(socket, roomId) {
+async function generateGame(roomId) {
   const player1 = waitingPlayers.shift();
   const player2 = waitingPlayers.shift();
   let players = { player1, player2 };
-  log(roomId)
-  await socket.join(roomId);
   let ball = { x: 250, y: 150, dx: 2, dy: 2, radius: 5, speedX: 2, speedY: 2 };
   let scores = { player1: 0, player2: 0 };
   let paddle1 = { x: 0, y: 150, width: 15, height: 100, id: player1.playerId };
@@ -167,8 +147,6 @@ async function generateGame(socket, roomId) {
 
   games.push(game);
   return game;
-
-  // return null;
 }
 
 function handlePlayerDisconnect(disconnectedSocketId) {
@@ -177,13 +155,14 @@ function handlePlayerDisconnect(disconnectedSocketId) {
 
   // Remove the player from active games and notify the other player
   games.forEach(game => {
-      const disconnectedPlayer = game.players.find(player => player.socketId === disconnectedSocketId);
-      if (disconnectedPlayer) {
-          const otherPlayer = game.players.find(player => player !== disconnectedPlayer);
+    // const disconnectedPlayer = game.players.find(player => player.socketId === disconnectedSocketId);
+    const disconnectedPlayer = game.players.player1.id === disconnectedSocketId || game.players.player2.id === disconnectedSocketId;
+    if (disconnectedPlayer) {
+      const otherPlayer = game.players.player1.id !== disconnectedSocketId || game.players.player2.id !== disconnectedSocketId;
 
-          io.to(otherPlayer.socketId).emit('opponentDisconnected');
-          games = games.filter(g => g !== game);
-      }
+      io.to(otherPlayer.socketId).emit('opponentDisconnected');
+      games = games.filter(g => g !== game);
+    }
   });
 }
 

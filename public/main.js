@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', function () {
   const socket = io();
 
@@ -5,17 +6,20 @@ document.addEventListener('DOMContentLoaded', function () {
   let room;
   let playerNumber;
   let gamePlay = {};
+  let scores = {};
+  const scoresElement = document.getElementById('scores');
   let paddles = {
     other: { x: 0, y: 0, width: 10, height: 60, id: null },
     my: { x: 790, y: 0, width: 10, height: 60, id: null }
   };
-  let ball = { x: 0, y: 0, radius: 5, speedX: 2, speedY: 2 };
+  let ball = { x: 250, y: 150, radius: 5, speedX: 2, speedY: 2 };
 
   socket.emit('new player');
 
-  socket.on('id', function (number) {
-    socketId = number;
-    console.log(`Your socket ID is: ${socketId}`);
+  socket.on('id', function ({id, num}) {
+    socketId = id;
+    playerNumber = num;
+    console.log(`Your socket ID is: ${socketId} and you are Player number ${playerNumber}`);
   });
 
   socket.on('game', function (game) {
@@ -80,6 +84,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Listen for updated ball positions from the server
   socket.on('updateBall', function (data) {
+    console.log(data);
     ball = data;
   });
+
+  socket.on('update scores', (data) => {
+    scores = data;
+    scoresElement.innerText = `Player 1: ${scores.player1} | Player 2: ${scores.player2}`;;
+  });
+
 });
