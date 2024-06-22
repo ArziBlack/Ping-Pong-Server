@@ -90,7 +90,7 @@ io.on('connection', (socket) => {
       io.to(players.player1.playerId).emit('updateBall', ball);
       io.to(players.player2.playerId).emit('updateBall', ball);
     })
-  }, 1000 / 10);
+  }, 1000 / 30);
 
   // Handle player disconnection
   socket.on('disconnect', () => {
