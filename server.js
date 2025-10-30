@@ -24,20 +24,20 @@ io.on("connection", (socket) => {
   socket.on("quickMatch", async () => {
     waitingPlayers.push({ playerId: socket.id });
     socket.emit("waitingForPlayer", { inviteCode: null });
-    
+
     if (waitingPlayers.length >= 2) {
       const player1 = waitingPlayers.shift();
       const player2 = waitingPlayers.shift();
       const roomId = generateRoomId();
-      
+
       const player1Socket = io.sockets.sockets.get(player1.playerId);
       const player2Socket = io.sockets.sockets.get(player2.playerId);
-      
+
       if (player1Socket && player2Socket) {
         await player1Socket.join(roomId);
         await player2Socket.join(roomId);
-        
-        const game = await generateGame(roomId, player1, player2);
+
+        const game = await generateGame(roomId, player1, player2, "score", 60);
         if (game) {
           startGame(game);
         }
@@ -46,45 +46,51 @@ io.on("connection", (socket) => {
   });
 
   // Create private game with invite code
-  socket.on("createPrivateGame", () => {
+  socket.on("createPrivateGame", ({ gameMode, gameDuration }) => {
     const inviteCode = generateInviteCode();
     const roomId = generateRoomId();
-    
+
     privateGames[inviteCode] = {
       roomId,
       host: { playerId: socket.id },
       guest: null,
       started: false,
+      gameMode: gameMode || "score",
+      gameDuration: gameDuration || 60,
     };
-    
+
     socket.join(roomId);
     socket.emit("waitingForPlayer", { inviteCode });
-    console.log(`Private game created with code: ${inviteCode}`);
+    console.log(
+      `Private game created with code: ${inviteCode} (${gameMode} mode)`
+    );
   });
 
   // Join private game with invite code
   socket.on("joinPrivateGame", async (inviteCode) => {
     const privateGame = privateGames[inviteCode];
-    
+
     if (!privateGame) {
       socket.emit("gameNotFound");
       return;
     }
-    
+
     if (privateGame.guest || privateGame.started) {
       socket.emit("gameFull");
       return;
     }
-    
+
     privateGame.guest = { playerId: socket.id };
     await socket.join(privateGame.roomId);
-    
+
     const game = await generateGame(
       privateGame.roomId,
       privateGame.host,
-      privateGame.guest
+      privateGame.guest,
+      privateGame.gameMode,
+      privateGame.gameDuration
     );
-    
+
     if (game) {
       privateGame.started = true;
       startGame(game);
@@ -98,7 +104,7 @@ io.on("connection", (socket) => {
     waitingPlayers = waitingPlayers.filter(
       (player) => player.playerId !== socket.id
     );
-    
+
     // Remove from private games
     for (const code in privateGames) {
       if (privateGames[code].host.playerId === socket.id) {
@@ -125,7 +131,12 @@ io.on("connection", (socket) => {
     if (gameIndex !== -1) {
       const game = games[gameIndex];
       const { scores, players } = game;
-      const winner = scores.player1 > scores.player2 ? 1 : scores.player2 > scores.player1 ? 2 : 0;
+      const winner =
+        scores.player1 > scores.player2
+          ? 1
+          : scores.player2 > scores.player1
+          ? 2
+          : 0;
       io.to(players.player1.playerId).emit("gameOver", { winner, scores });
       io.to(players.player2.playerId).emit("gameOver", { winner, scores });
       games.splice(gameIndex, 1);
@@ -183,7 +194,7 @@ function getGame(room, games) {
   return null;
 }
 
-async function generateGame(roomId, player1, player2) {
+async function generateGame(roomId, player1, player2, gameMode, gameDuration) {
   let players = { player1, player2 };
   let ball = { x: 250, y: 150, dx: 2, dy: 2, radius: 5, speedX: 2, speedY: 2 };
   let scores = { player1: 0, player2: 0 };
@@ -203,6 +214,9 @@ async function generateGame(roomId, player1, player2) {
     ball,
     scores,
     paddles,
+    gameMode: gameMode || "score",
+    gameDuration: gameDuration || 60,
+    startTime: null,
   };
 
   games.push(game);
@@ -210,6 +224,8 @@ async function generateGame(roomId, player1, player2) {
 }
 
 function startGame(game) {
+  game.startTime = Date.now();
+
   io.to(game.players.player1.playerId).emit("id", {
     id: game.players.player1.playerId,
     num: 1,
@@ -221,8 +237,14 @@ function startGame(game) {
   io.to(game.players.player1.playerId).emit("game", game);
   io.to(game.players.player2.playerId).emit("game", game);
   setTimeout(() => {
-    io.to(game.players.player1.playerId).emit("gameStart");
-    io.to(game.players.player2.playerId).emit("gameStart");
+    io.to(game.players.player1.playerId).emit("gameStart", {
+      gameMode: game.gameMode,
+      gameDuration: game.gameDuration,
+    });
+    io.to(game.players.player2.playerId).emit("gameStart", {
+      gameMode: game.gameMode,
+      gameDuration: game.gameDuration,
+    });
   }, 1500);
 }
 
@@ -252,8 +274,35 @@ function handlePlayerDisconnect(disconnectedSocketId) {
 // Game loop - runs independently of socket connections
 setInterval(() => {
   games.forEach((game, index) => {
-    const { ball, roomId, paddles, scores, players } = game;
-    
+    const {
+      ball,
+      roomId,
+      paddles,
+      scores,
+      players,
+      gameMode,
+      gameDuration,
+      startTime,
+    } = game;
+
+    // Check if time-based game has ended
+    if (gameMode === "time" && startTime) {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      if (elapsed >= gameDuration) {
+        // Time's up - determine winner by score
+        const winner =
+          scores.player1 > scores.player2
+            ? 1
+            : scores.player2 > scores.player1
+            ? 2
+            : 0;
+        io.to(players.player1.playerId).emit("gameOver", { winner, scores });
+        io.to(players.player2.playerId).emit("gameOver", { winner, scores });
+        games.splice(index, 1);
+        return;
+      }
+    }
+
     ball.x += ball.speedX;
     ball.y += ball.speedY;
 
@@ -276,8 +325,11 @@ setInterval(() => {
       io.to(players.player1.playerId).emit("scored");
       io.to(players.player2.playerId).emit("scored");
 
-      // Check if game should end (score reaches 10)
-      if (scores.player1 >= 10 || scores.player2 >= 10) {
+      // Check if game should end (score reaches 10) - only for score mode
+      if (
+        gameMode === "score" &&
+        (scores.player1 >= 10 || scores.player2 >= 10)
+      ) {
         const winner = scores.player1 >= 10 ? 1 : 2;
         io.to(players.player1.playerId).emit("gameOver", { winner, scores });
         io.to(players.player2.playerId).emit("gameOver", { winner, scores });

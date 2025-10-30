@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // UI Elements
   const lobbyScreen = document.getElementById("lobbyScreen");
+  const gameSettingsScreen = document.getElementById("gameSettingsScreen");
   const waitingScreen = document.getElementById("waitingScreen");
   const scoresElement = document.getElementById("scores");
   const gameContainer = document.getElementById("gameContainer");
@@ -21,6 +22,14 @@ document.addEventListener("DOMContentLoaded", function () {
   const inviteCodeDisplay = document.getElementById("inviteCodeDisplay");
   const inviteCodeSpan = document.getElementById("inviteCode");
   const cancelWaitBtn = document.getElementById("cancelWaitBtn");
+  const startGameBtn = document.getElementById("startGameBtn");
+  const backToLobbyBtn = document.getElementById("backToLobbyBtn");
+  const gameDurationInput = document.getElementById("gameDuration");
+  const timeSettings = document.getElementById("timeSettings");
+  
+  let gameMode = "score"; // 'score' or 'time'
+  let gameDuration = 60; // in seconds
+  let countdownInterval = null;
 
   let paddles = {
     other: { x: 0, y: 0, width: 10, height: 60, id: null },
@@ -37,7 +46,7 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 
   createGameBtn.addEventListener("click", function () {
-    socket.emit("createPrivateGame");
+    showGameSettingsScreen();
   });
 
   joinGameBtn.addEventListener("click", function () {
@@ -56,6 +65,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function showLobbyScreen() {
     lobbyScreen.style.display = "flex";
+    gameSettingsScreen.style.display = "none";
     waitingScreen.style.display = "none";
     gameContainer.style.display = "none";
     scoresElement.style.display = "none";
@@ -63,11 +73,38 @@ document.addEventListener("DOMContentLoaded", function () {
     endGameBtn.style.display = "none";
   }
 
+  function showGameSettingsScreen() {
+    lobbyScreen.style.display = "none";
+    gameSettingsScreen.style.display = "flex";
+  }
+
   function showWaitingScreen(showInviteCode) {
     lobbyScreen.style.display = "none";
+    gameSettingsScreen.style.display = "none";
     waitingScreen.style.display = "block";
     inviteCodeDisplay.style.display = showInviteCode ? "block" : "none";
   }
+
+  // Game mode radio button handler
+  document.querySelectorAll('input[name="gameMode"]').forEach((radio) => {
+    radio.addEventListener("change", function () {
+      gameMode = this.value;
+      timeSettings.style.display = gameMode === "time" ? "flex" : "none";
+    });
+  });
+
+  // Start game button handler
+  startGameBtn.addEventListener("click", function () {
+    if (gameMode === "time") {
+      gameDuration = parseInt(gameDurationInput.value) * 60; // Convert to seconds
+    }
+    socket.emit("createPrivateGame", { gameMode, gameDuration });
+  });
+
+  // Back to lobby button handler
+  backToLobbyBtn.addEventListener("click", function () {
+    showLobbyScreen();
+  });
 
   socket.on("id", function ({ id, num }) {
     socketId = id;
@@ -108,9 +145,13 @@ document.addEventListener("DOMContentLoaded", function () {
     }, 1000);
   });
 
-  socket.on("gameStart", function () {
+  socket.on("gameStart", function (data) {
+    gameMode = data.gameMode;
+    gameDuration = data.gameDuration;
+    
     // Hide lobby/waiting and show game
     lobbyScreen.style.display = "none";
+    gameSettingsScreen.style.display = "none";
     waitingScreen.style.display = "none";
     gameContainer.style.display = "block";
     scoresElement.style.display = "block";
@@ -119,7 +160,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Start the timer
     gameStartTime = Date.now();
-    timerInterval = setInterval(updateTimer, 1000);
+    
+    if (gameMode === "time") {
+      // Countdown timer
+      countdownInterval = setInterval(updateCountdown, 1000);
+    } else {
+      // Regular timer
+      timerInterval = setInterval(updateTimer, 1000);
+    }
 
     animate();
   });
@@ -132,6 +180,22 @@ document.addEventListener("DOMContentLoaded", function () {
       2,
       "0"
     )}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function updateCountdown() {
+    const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+    const remaining = Math.max(0, gameDuration - elapsed);
+    const minutes = Math.floor(remaining / 60);
+    const seconds = remaining % 60;
+    timerElement.innerText = `Time: ${String(minutes).padStart(
+      2,
+      "0"
+    )}:${String(seconds).padStart(2, "0")}`;
+    
+    if (remaining <= 0) {
+      clearInterval(countdownInterval);
+      // Time's up - server will handle game over
+    }
   }
 
   // End game button handler
@@ -228,6 +292,9 @@ document.addEventListener("DOMContentLoaded", function () {
     // Stop the timer
     if (timerInterval) {
       clearInterval(timerInterval);
+    }
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
     }
 
     alert(message);

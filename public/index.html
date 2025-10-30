@@ -50,6 +50,49 @@
       </div>
     </div>
 
+    <!-- Game Settings Screen -->
+    <div id="gameSettingsScreen" class="flex flex-col items-center gap-5" style="display: none">
+      <h2 class="text-2xl text-shadow mb-3">Game Settings</h2>
+      
+      <div class="flex flex-col gap-3">
+        <label class="text-lg text-shadow">
+          <input type="radio" name="gameMode" value="score" checked class="mr-2" />
+          Score Mode (First to 10)
+        </label>
+        <label class="text-lg text-shadow">
+          <input type="radio" name="gameMode" value="time" class="mr-2" />
+          Time Mode (Countdown)
+        </label>
+      </div>
+
+      <div id="timeSettings" class="flex flex-col items-center gap-3" style="display: none">
+        <label class="text-lg text-shadow">Game Duration (minutes):</label>
+        <input
+          id="gameDuration"
+          type="number"
+          min="1"
+          max="10"
+          value="1"
+          class="px-4 py-2 bg-custom-dark text-custom-light border-2 border-custom-light text-center text-lg w-20"
+        />
+      </div>
+
+      <div class="flex gap-3 mt-3">
+        <button
+          id="startGameBtn"
+          class="px-8 py-3 bg-green-600 hover:bg-green-700 text-custom-light border-2 border-custom-light shadow-glow cursor-pointer transition-colors"
+        >
+          Start Game
+        </button>
+        <button
+          id="backToLobbyBtn"
+          class="px-8 py-3 bg-gray-600 hover:bg-gray-700 text-custom-light border-2 border-custom-light shadow-glow cursor-pointer transition-colors"
+        >
+          Back
+        </button>
+      </div>
+    </div>
+
     <!-- Waiting Screen -->
     <div id="waitingScreen" style="display: none">
       <div id="waitingMessage" class="mb-5 text-xl text-shadow animate-pulse">
