@@ -15,6 +15,9 @@ document.addEventListener("DOMContentLoaded", function () {
   const gameContainer = document.getElementById("gameContainer");
   const timerElement = document.getElementById("timer");
   const endGameBtn = document.getElementById("endGameBtn");
+  const pauseGameBtn = document.getElementById("pauseGameBtn");
+  const pauseOverlay = document.getElementById("pauseOverlay");
+  const resumeGameBtn = document.getElementById("resumeGameBtn");
   const quickMatchBtn = document.getElementById("quickMatchBtn");
   const createGameBtn = document.getElementById("createGameBtn");
   const joinGameBtn = document.getElementById("joinGameBtn");
@@ -29,7 +32,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const ballSpeedInput = document.getElementById("ballSpeed");
   const ballSpeedValue = document.getElementById("ballSpeedValue");
   const frameRateSelect = document.getElementById("frameRate");
-  
+
   let gameMode = "score"; // 'score' or 'time'
   let gameDuration = 60; // in seconds
   let ballSpeed = 2; // 1-5
@@ -49,12 +52,15 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 
   let paddles = {
-    other: { x: 0, y: 0, width: 10, height: 60, id: null },
-    my: { x: 790, y: 0, width: 10, height: 60, id: null },
+    other: { x: 0, y: 0, width: 15, height: 100, id: null, hitEffect: false },
+    my: { x: 865, y: 200, width: 15, height: 100, id: null, hitEffect: false },
   };
-  let ball = { x: 250, y: 150, radius: 5, speedX: 2, speedY: 2 };
+  let ball = { x: 450, y: 250, radius: 7, speedX: 2, speedY: 2 };
   let gameStartTime = null;
   let timerInterval = null;
+  let isPaused = false;
+  let pauseStartTime = null;
+  let totalPausedTime = 0;
 
   // Lobby button handlers
   quickMatchBtn.addEventListener("click", function () {
@@ -88,6 +94,8 @@ document.addEventListener("DOMContentLoaded", function () {
     scoresElement.style.display = "none";
     timerElement.style.display = "none";
     endGameBtn.style.display = "none";
+    pauseGameBtn.style.display = "none";
+    pauseOverlay.style.display = "none";
   }
 
   function showGameSettingsScreen() {
@@ -117,11 +125,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     ballSpeed = parseInt(ballSpeedInput.value);
     frameRate = parseInt(frameRateSelect.value);
-    socket.emit("createPrivateGame", { 
-      gameMode, 
-      gameDuration, 
-      ballSpeed, 
-      frameRate 
+    socket.emit("createPrivateGame", {
+      gameMode,
+      gameDuration,
+      ballSpeed,
+      frameRate,
     });
   });
 
@@ -155,6 +163,55 @@ document.addEventListener("DOMContentLoaded", function () {
     alert("This game is already full.");
   });
 
+  socket.on("gamePaused", function (data) {
+    console.log("Received gamePaused event", data);
+    console.log("Current isPaused state:", isPaused);
+    
+    isPaused = true;
+
+    // Store current positions when pausing
+    if (data && data.ball) {
+      ball = data.ball;
+      console.log("Ball position frozen at:", ball.x, ball.y);
+    }
+    if (data && data.paddles) {
+      data.paddles.forEach((serverPaddle) => {
+        if (serverPaddle.id === paddles.my.id) {
+          paddles.my = serverPaddle;
+        } else if (serverPaddle.id === paddles.other.id) {
+          paddles.other = serverPaddle;
+        }
+      });
+      console.log("Paddles frozen");
+    }
+
+    pauseOverlay.style.display = "flex";
+    pauseGameBtn.innerText = "Resume";
+    pauseGameBtn.classList.remove("bg-yellow-600", "hover:bg-yellow-700");
+    pauseGameBtn.classList.add("bg-green-600", "hover:bg-green-700");
+    pauseStartTime = Date.now();
+    
+    console.log("Game paused successfully. isPaused:", isPaused);
+  });
+
+  socket.on("gameResumed", function () {
+    console.log("Received gameResumed event");
+    console.log("Current isPaused state:", isPaused);
+    
+    isPaused = false;
+    pauseOverlay.style.display = "none";
+    pauseGameBtn.innerText = "Pause";
+    pauseGameBtn.classList.remove("bg-green-600", "hover:bg-green-700");
+    pauseGameBtn.classList.add("bg-yellow-600", "hover:bg-yellow-700");
+
+    if (pauseStartTime) {
+      totalPausedTime += Date.now() - pauseStartTime;
+      pauseStartTime = null;
+    }
+    
+    console.log("Game resumed successfully. isPaused:", isPaused);
+  });
+
   socket.on("game", function (game) {
     setTimeout(async () => {
       gamePlay = game;
@@ -174,7 +231,7 @@ document.addEventListener("DOMContentLoaded", function () {
     gameDuration = data.gameDuration;
     ballSpeed = data.ballSpeed || 2;
     frameRate = data.frameRate || 35;
-    
+
     // Hide lobby/waiting and show game
     lobbyScreen.style.display = "none";
     gameSettingsScreen.style.display = "none";
@@ -183,10 +240,11 @@ document.addEventListener("DOMContentLoaded", function () {
     scoresElement.style.display = "block";
     timerElement.style.display = "block";
     endGameBtn.style.display = "block";
+    pauseGameBtn.style.display = "block";
 
     // Start the timer
     gameStartTime = Date.now();
-    
+
     if (gameMode === "time") {
       // Countdown timer
       countdownInterval = setInterval(updateCountdown, 1000);
@@ -199,7 +257,10 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 
   function updateTimer() {
-    const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+    if (isPaused) return;
+    const elapsed = Math.floor(
+      (Date.now() - gameStartTime - totalPausedTime) / 1000
+    );
     const minutes = Math.floor(elapsed / 60);
     const seconds = elapsed % 60;
     timerElement.innerText = `Time: ${String(minutes).padStart(
@@ -209,7 +270,10 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function updateCountdown() {
-    const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+    if (isPaused) return;
+    const elapsed = Math.floor(
+      (Date.now() - gameStartTime - totalPausedTime) / 1000
+    );
     const remaining = Math.max(0, gameDuration - elapsed);
     const minutes = Math.floor(remaining / 60);
     const seconds = remaining % 60;
@@ -217,12 +281,22 @@ document.addEventListener("DOMContentLoaded", function () {
       2,
       "0"
     )}:${String(seconds).padStart(2, "0")}`;
-    
+
     if (remaining <= 0) {
       clearInterval(countdownInterval);
       // Time's up - server will handle game over
     }
   }
+
+  // Pause game button handler
+  pauseGameBtn.addEventListener("click", function () {
+    togglePause();
+  });
+
+  // Resume game button handler
+  resumeGameBtn.addEventListener("click", function () {
+    togglePause();
+  });
 
   // End game button handler
   endGameBtn.addEventListener("click", function () {
@@ -231,17 +305,55 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
+  function togglePause() {
+    if (isPaused) {
+      // Resume game
+      isPaused = false;
+      pauseOverlay.style.display = "none";
+      pauseGameBtn.innerText = "Pause";
+      pauseGameBtn.classList.remove("bg-green-600", "hover:bg-green-700");
+      pauseGameBtn.classList.add("bg-yellow-600", "hover:bg-yellow-700");
+
+      // Calculate paused duration and add to total
+      if (pauseStartTime) {
+        totalPausedTime += Date.now() - pauseStartTime;
+        pauseStartTime = null;
+      }
+
+      socket.emit("resumeGame", { room });
+    } else {
+      // Pause game
+      isPaused = true;
+      pauseOverlay.style.display = "flex";
+      pauseGameBtn.innerText = "Resume";
+      pauseGameBtn.classList.remove("bg-yellow-600", "hover:bg-yellow-700");
+      pauseGameBtn.classList.add("bg-green-600", "hover:bg-green-700");
+      pauseStartTime = Date.now();
+
+      socket.emit("pauseGame", { room });
+    }
+  }
+
+  // Keyboard shortcut for pause (Space key)
+  document.addEventListener("keydown", function (e) {
+    if (e.code === "Space" && gameContainer.style.display === "block") {
+      e.preventDefault();
+      togglePause();
+    }
+  });
+
   function animate() {
-    // Emit paddles movement to the server
-    socket.emit("movePaddle", {
-      paddle: paddles.my,
-      room: room,
-      id: paddles.other.id,
-      myId: paddles.my.id,
-    });
+    // Only send paddle updates if not paused
+    if (!isPaused) {
+      socket.emit("movePaddle", {
+        paddle: paddles.my,
+        room: room,
+        id: paddles.other.id,
+        myId: paddles.my.id,
+      });
+    }
 
     // Draw the game state
-    // (Assuming you have a canvas element with id 'gameCanvas')
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
 
@@ -254,14 +366,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw paddles
-    ctx.fillStyle = "#000";
+    // Draw paddles with hit effect
+    // My paddle
+    ctx.fillStyle = paddles.my.hitEffect ? "#FFD700" : "#000";
     ctx.fillRect(
       paddles.my.x,
       paddles.my.y,
       paddles.my.width,
       paddles.my.height
     );
+
+    // Other paddle
+    ctx.fillStyle = paddles.other.hitEffect ? "#FFD700" : "#000";
     ctx.fillRect(
       paddles.other.x,
       paddles.other.y,
@@ -272,9 +388,21 @@ document.addEventListener("DOMContentLoaded", function () {
     // Draw ball
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = "#FF4444";
     ctx.fill();
     ctx.closePath();
+
+    // Draw "PAUSED" text on canvas if paused
+    if (isPaused) {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#FFD700";
+      ctx.font = "bold 48px 'Press Start 2P', monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("PAUSED", canvas.width / 2, canvas.height / 2);
+    }
 
     // Request the next animation frame
     requestAnimationFrame(animate);
@@ -282,25 +410,50 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Add event listeners for paddle movement
   document.addEventListener("keydown", function (e) {
+    if (isPaused) return; // Don't move paddles when paused
+
     if (e.key === "ArrowUp" && paddles.my.y > 0) {
-      paddles.my.y -= 5;
+      paddles.my.y -= 7;
     } else if (
       e.key === "ArrowDown" &&
-      paddles.my.y + paddles.my.height < 300
+      paddles.my.y + paddles.my.height < 500
     ) {
-      paddles.my.y += 5;
+      paddles.my.y += 7;
     }
   });
 
   // Listen for updated paddle positions from the server
   socket.on("updatePaddle", function (data) {
-    paddles.other.y = data.y;
+    // Only update paddle position if not paused
+    if (!isPaused) {
+      paddles.other.y = data.y;
+      if (data.hitEffect !== undefined) {
+        paddles.other.hitEffect = data.hitEffect;
+      }
+    }
+  });
+
+  // Listen for updated paddles (for hit effects)
+  socket.on("updatePaddles", function (data) {
+    // Only update paddle effects if not paused
+    if (!isPaused) {
+      data.forEach((serverPaddle) => {
+        if (serverPaddle.id === paddles.my.id) {
+          paddles.my.hitEffect = serverPaddle.hitEffect;
+        } else if (serverPaddle.id === paddles.other.id) {
+          paddles.other.hitEffect = serverPaddle.hitEffect;
+        }
+      });
+    }
   });
 
   // Listen for updated ball positions from the server
   socket.on("updateBall", function (data) {
-    console.log(data);
-    ball = data;
+    // Only update ball position if not paused
+    if (!isPaused) {
+      console.log(data);
+      ball = data;
+    }
   });
 
   socket.on("update scores", (data) => {

@@ -37,7 +37,15 @@ io.on("connection", (socket) => {
         await player1Socket.join(roomId);
         await player2Socket.join(roomId);
 
-        const game = await generateGame(roomId, player1, player2, "score", 60, 2, 35);
+        const game = await generateGame(
+          roomId,
+          player1,
+          player2,
+          "score",
+          60,
+          2,
+          35
+        );
         if (game) {
           startGame(game);
         }
@@ -46,27 +54,30 @@ io.on("connection", (socket) => {
   });
 
   // Create private game with invite code
-  socket.on("createPrivateGame", ({ gameMode, gameDuration, ballSpeed, frameRate }) => {
-    const inviteCode = generateInviteCode();
-    const roomId = generateRoomId();
+  socket.on(
+    "createPrivateGame",
+    ({ gameMode, gameDuration, ballSpeed, frameRate }) => {
+      const inviteCode = generateInviteCode();
+      const roomId = generateRoomId();
 
-    privateGames[inviteCode] = {
-      roomId,
-      host: { playerId: socket.id },
-      guest: null,
-      started: false,
-      gameMode: gameMode || "score",
-      gameDuration: gameDuration || 60,
-      ballSpeed: ballSpeed || 2,
-      frameRate: frameRate || 35,
-    };
+      privateGames[inviteCode] = {
+        roomId,
+        host: { playerId: socket.id },
+        guest: null,
+        started: false,
+        gameMode: gameMode || "score",
+        gameDuration: gameDuration || 60,
+        ballSpeed: ballSpeed || 2,
+        frameRate: frameRate || 35,
+      };
 
-    socket.join(roomId);
-    socket.emit("waitingForPlayer", { inviteCode });
-    console.log(
-      `Private game created with code: ${inviteCode} (${gameMode} mode, speed: ${ballSpeed}, fps: ${frameRate})`
-    );
-  });
+      socket.join(roomId);
+      socket.emit("waitingForPlayer", { inviteCode });
+      console.log(
+        `Private game created with code: ${inviteCode} (${gameMode} mode, speed: ${ballSpeed}, fps: ${frameRate})`
+      );
+    }
+  );
 
   // Join private game with invite code
   socket.on("joinPrivateGame", async (inviteCode) => {
@@ -121,12 +132,59 @@ io.on("connection", (socket) => {
   // Update the player position
   socket.on("movePaddle", ({ paddle, room, id, myId }) => {
     games.forEach((game) => {
-      if (game.roomId === room) {
+      if (game.roomId === room && !game.isPaused) {
         var index = game.paddles.findIndex((idx) => idx.id === myId);
         index !== -1 && (game.paddles[index] = paddle);
         io.to(id).emit("updatePaddle", paddle);
       }
     });
+  });
+
+  // Handle pause game request
+  socket.on("pauseGame", ({ room }) => {
+    const game = games.find((g) => g.roomId === room);
+    if (game && !game.isPaused) {
+      game.isPaused = true;
+      game.pauseStartTime = Date.now();
+      
+      // Send current game state to freeze positions
+      const pauseData = {
+        ball: game.ball,
+        paddles: game.paddles,
+      };
+      
+      console.log(`Game ${room} paused by player. Broadcasting to both players.`);
+      console.log(`Player 1: ${game.players.player1.playerId}`);
+      console.log(`Player 2: ${game.players.player2.playerId}`);
+      
+      // Broadcast to both players individually
+      io.to(game.players.player1.playerId).emit("gamePaused", pauseData);
+      io.to(game.players.player2.playerId).emit("gamePaused", pauseData);
+      
+      // Also broadcast to the room
+      io.to(room).emit("gamePaused", pauseData);
+    }
+  });
+
+  // Handle resume game request
+  socket.on("resumeGame", ({ room }) => {
+    const game = games.find((g) => g.roomId === room);
+    if (game && game.isPaused) {
+      game.isPaused = false;
+      if (game.pauseStartTime) {
+        game.totalPausedTime = (game.totalPausedTime || 0) + (Date.now() - game.pauseStartTime);
+        game.pauseStartTime = null;
+      }
+      
+      console.log(`Game ${room} resumed. Broadcasting to both players.`);
+      
+      // Broadcast to both players individually
+      io.to(game.players.player1.playerId).emit("gameResumed");
+      io.to(game.players.player2.playerId).emit("gameResumed");
+      
+      // Also broadcast to the room
+      io.to(room).emit("gameResumed");
+    }
   });
 
   // Handle end game request
@@ -187,31 +245,42 @@ io.on("connection", (socket) => {
   }
 });
 
-function findPaddleAndUpdate(game, playerId, paddle) {
-  return game.paddles.find((item) => item.id === playerId && paddle);
-}
-
-function getGame(room, games) {
-  const found = games.find((item) => item.roomId === room);
-  log(found);
-  if (found) {
-    return found;
-  }
-  return null;
-}
-
-async function generateGame(roomId, player1, player2, gameMode, gameDuration, ballSpeed, frameRate) {
+async function generateGame(
+  roomId,
+  player1,
+  player2,
+  gameMode,
+  gameDuration,
+  ballSpeed,
+  frameRate
+) {
   let players = { player1, player2 };
   const speed = ballSpeed || 2;
-  let ball = { x: 250, y: 150, dx: speed, dy: speed, radius: 5, speedX: speed, speedY: speed };
+  let ball = {
+    x: 450,
+    y: 250,
+    dx: speed,
+    dy: speed,
+    radius: 7,
+    speedX: speed,
+    speedY: speed,
+  };
   let scores = { player1: 0, player2: 0 };
-  let paddle1 = { x: 0, y: 150, width: 15, height: 100, id: player1.playerId };
+  let paddle1 = {
+    x: 20,
+    y: 200,
+    width: 15,
+    height: 100,
+    id: player1.playerId,
+    hitEffect: false,
+  };
   let paddle2 = {
-    x: 485,
-    y: 150,
+    x: 865,
+    y: 200,
     width: 15,
     height: 100,
     id: player2.playerId,
+    hitEffect: false,
   };
   let paddles = [paddle1, paddle2];
 
@@ -226,6 +295,9 @@ async function generateGame(roomId, player1, player2, gameMode, gameDuration, ba
     ballSpeed: ballSpeed || 2,
     frameRate: frameRate || 35,
     startTime: null,
+    isPaused: false,
+    pauseStartTime: null,
+    totalPausedTime: 0,
   };
 
   games.push(game);
@@ -245,10 +317,10 @@ function startGame(game) {
   });
   io.to(game.players.player1.playerId).emit("game", game);
   io.to(game.players.player2.playerId).emit("game", game);
-  
+
   // Start the game loop for this specific game
   startGameLoop(game);
-  
+
   setTimeout(() => {
     io.to(game.players.player1.playerId).emit("gameStart", {
       gameMode: game.gameMode,
@@ -293,19 +365,19 @@ let gameLoopIntervals = {};
 
 function startGameLoop(game) {
   const fps = game.frameRate || 35;
-  
+
   if (gameLoopIntervals[game.roomId]) {
     clearInterval(gameLoopIntervals[game.roomId]);
   }
-  
+
   gameLoopIntervals[game.roomId] = setInterval(() => {
-    const gameIndex = games.findIndex(g => g.roomId === game.roomId);
+    const gameIndex = games.findIndex((g) => g.roomId === game.roomId);
     if (gameIndex === -1) {
       clearInterval(gameLoopIntervals[game.roomId]);
       delete gameLoopIntervals[game.roomId];
       return;
     }
-    
+
     const currentGame = games[gameIndex];
     const {
       ball,
@@ -316,11 +388,23 @@ function startGameLoop(game) {
       gameMode,
       gameDuration,
       startTime,
+      isPaused,
+      totalPausedTime,
     } = currentGame;
+
+    // Skip all game physics if paused
+    if (isPaused) {
+      // Still emit current positions to keep clients in sync
+      io.to(players.player1.playerId).emit("updateBall", ball);
+      io.to(players.player2.playerId).emit("updateBall", ball);
+      io.to(players.player1.playerId).emit("updatePaddles", paddles);
+      io.to(players.player2.playerId).emit("updatePaddles", paddles);
+      return;
+    }
 
     // Check if time-based game has ended
     if (gameMode === "time" && startTime) {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const elapsed = Math.floor((Date.now() - startTime - (totalPausedTime || 0)) / 1000);
       if (elapsed >= gameDuration) {
         // Time's up - determine winner by score
         const winner =
@@ -341,19 +425,26 @@ function startGameLoop(game) {
     ball.x += ball.speedX;
     ball.y += ball.speedY;
 
-    if (ball.y <= 0 || ball.y >= 300) {
+    // Reset paddle hit effects
+    paddles.forEach((paddle) => {
+      if (paddle.hitEffect) {
+        paddle.hitEffect = false;
+      }
+    });
+
+    if (ball.y <= 0 || ball.y >= 500) {
       ball.speedY *= -1;
     }
 
     // Check for scoring
-    if (ball.x <= 0 || ball.x >= 500) {
+    if (ball.x <= 0 || ball.x >= 900) {
       if (ball.x <= 0) {
         scores.player2++;
       } else {
         scores.player1++;
       }
-      ball.x = 250;
-      ball.y = 150;
+      ball.x = 450;
+      ball.y = 250;
       ball.speedX = -ball.speedX;
       io.to(players.player1.playerId).emit("update scores", scores);
       io.to(players.player2.playerId).emit("update scores", scores);
@@ -386,16 +477,19 @@ function startGameLoop(game) {
         ball.y <= paddle.y + paddle.height
       ) {
         ball.speedX *= -1;
-        io.to(roomId).emit("paddle hit", id);
+        paddle.hitEffect = true;
+        io.to(roomId).emit("paddle hit", { paddleId: id, paddles });
       }
     }
     io.to(players.player1.playerId).emit("updateBall", ball);
     io.to(players.player2.playerId).emit("updateBall", ball);
+    io.to(players.player1.playerId).emit("updatePaddles", paddles);
+    io.to(players.player2.playerId).emit("updatePaddles", paddles);
   }, 1000 / fps);
 }
 
 // Start game loops for existing games
-games.forEach(game => startGameLoop(game));
+games.forEach((game) => startGameLoop(game));
 
 const PORT = process.env.PORT || 4000;
 
