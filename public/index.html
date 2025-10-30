@@ -77,6 +77,36 @@
         />
       </div>
 
+      <div class="flex flex-col items-center gap-3 mt-3">
+        <label class="text-lg text-shadow">Ball Speed:</label>
+        <div class="flex gap-2 items-center">
+          <span class="text-sm">Slow</span>
+          <input
+            id="ballSpeed"
+            type="range"
+            min="1"
+            max="5"
+            value="2"
+            class="w-40"
+          />
+          <span class="text-sm">Fast</span>
+        </div>
+        <span id="ballSpeedValue" class="text-sm text-yellow-400">Normal</span>
+      </div>
+
+      <div class="flex flex-col items-center gap-3 mt-3">
+        <label class="text-lg text-shadow">Frame Rate (FPS):</label>
+        <select
+          id="frameRate"
+          class="px-4 py-2 bg-custom-dark text-custom-light border-2 border-custom-light text-center text-lg"
+        >
+          <option value="30">30 FPS</option>
+          <option value="35" selected>35 FPS (Default)</option>
+          <option value="45">45 FPS</option>
+          <option value="60">60 FPS</option>
+        </select>
+      </div>
+
       <div class="flex gap-3 mt-3">
         <button
           id="startGameBtn"

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="./output.css" rel="stylesheet" />
+    <title>Game Results - Ping Pong</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body
+    class="bg-custom-dark text-custom-light font-press-start flex h-screen flex-col items-center justify-center text-center"
+  >
+    <div class="flex flex-col items-center gap-6 max-w-2xl px-8">
+      <h1 class="text-5xl text-shadow-lg uppercase mb-3" id="resultTitle">
+        Game Over
+      </h1>
+
+      <div
+        id="winnerMessage"
+        class="text-3xl text-shadow mb-5"
+      ></div>
+
+      <div
+        class="border-2 border-custom-light p-8 shadow-glow bg-custom-dark w-full"
+      >
+        <h2 class="text-2xl text-shadow mb-6">Game Statistics</h2>
+
+        <div class="flex flex-col gap-4 text-lg">
+          <div class="flex justify-between">
+            <span>Player 1 Score:</span>
+            <span id="player1Score" class="text-green-400">0</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Player 2 Score:</span>
+            <span id="player2Score" class="text-blue-400">0</span>
+          </div>
+          <div class="border-t-2 border-custom-light my-2"></div>
+          <div class="flex justify-between">
+            <span>Game Mode:</span>
+            <span id="gameMode" class="text-yellow-400">Score</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Game Duration:</span>
+            <span id="gameDuration" class="text-yellow-400">00:00</span>
+          </div>
+          <div class="flex justify-between" id="totalPointsRow">
+            <span>Total Points:</span>
+            <span id="totalPoints" class="text-yellow-400">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-4 mt-4">
+        <a
+          href="/"
+          class="px-8 py-4 bg-green-600 hover:bg-green-700 text-custom-light border-2 border-custom-light shadow-glow cursor-pointer transition-colors text-lg no-underline"
+        >
+          Play Again
+        </a>
+      </div>
+    </div>
+
+    <script src="/results.js"></script>
+  </body>
+</html>

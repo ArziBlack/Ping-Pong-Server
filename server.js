@@ -37,7 +37,7 @@ io.on("connection", (socket) => {
         await player1Socket.join(roomId);
         await player2Socket.join(roomId);
 
-        const game = await generateGame(roomId, player1, player2, "score", 60);
+        const game = await generateGame(roomId, player1, player2, "score", 60, 2, 35);
         if (game) {
           startGame(game);
         }
@@ -46,7 +46,7 @@ io.on("connection", (socket) => {
   });
 
   // Create private game with invite code
-  socket.on("createPrivateGame", ({ gameMode, gameDuration }) => {
+  socket.on("createPrivateGame", ({ gameMode, gameDuration, ballSpeed, frameRate }) => {
     const inviteCode = generateInviteCode();
     const roomId = generateRoomId();
 
@@ -57,12 +57,14 @@ io.on("connection", (socket) => {
       started: false,
       gameMode: gameMode || "score",
       gameDuration: gameDuration || 60,
+      ballSpeed: ballSpeed || 2,
+      frameRate: frameRate || 35,
     };
 
     socket.join(roomId);
     socket.emit("waitingForPlayer", { inviteCode });
     console.log(
-      `Private game created with code: ${inviteCode} (${gameMode} mode)`
+      `Private game created with code: ${inviteCode} (${gameMode} mode, speed: ${ballSpeed}, fps: ${frameRate})`
     );
   });
 
@@ -88,7 +90,9 @@ io.on("connection", (socket) => {
       privateGame.host,
       privateGame.guest,
       privateGame.gameMode,
-      privateGame.gameDuration
+      privateGame.gameDuration,
+      privateGame.ballSpeed,
+      privateGame.frameRate
     );
 
     if (game) {
@@ -139,6 +143,8 @@ io.on("connection", (socket) => {
           : 0;
       io.to(players.player1.playerId).emit("gameOver", { winner, scores });
       io.to(players.player2.playerId).emit("gameOver", { winner, scores });
+      clearInterval(gameLoopIntervals[game.roomId]);
+      delete gameLoopIntervals[game.roomId];
       games.splice(gameIndex, 1);
     }
   });
@@ -194,9 +200,10 @@ function getGame(room, games) {
   return null;
 }
 
-async function generateGame(roomId, player1, player2, gameMode, gameDuration) {
+async function generateGame(roomId, player1, player2, gameMode, gameDuration, ballSpeed, frameRate) {
   let players = { player1, player2 };
-  let ball = { x: 250, y: 150, dx: 2, dy: 2, radius: 5, speedX: 2, speedY: 2 };
+  const speed = ballSpeed || 2;
+  let ball = { x: 250, y: 150, dx: speed, dy: speed, radius: 5, speedX: speed, speedY: speed };
   let scores = { player1: 0, player2: 0 };
   let paddle1 = { x: 0, y: 150, width: 15, height: 100, id: player1.playerId };
   let paddle2 = {
@@ -216,6 +223,8 @@ async function generateGame(roomId, player1, player2, gameMode, gameDuration) {
     paddles,
     gameMode: gameMode || "score",
     gameDuration: gameDuration || 60,
+    ballSpeed: ballSpeed || 2,
+    frameRate: frameRate || 35,
     startTime: null,
   };
 
@@ -236,14 +245,22 @@ function startGame(game) {
   });
   io.to(game.players.player1.playerId).emit("game", game);
   io.to(game.players.player2.playerId).emit("game", game);
+  
+  // Start the game loop for this specific game
+  startGameLoop(game);
+  
   setTimeout(() => {
     io.to(game.players.player1.playerId).emit("gameStart", {
       gameMode: game.gameMode,
       gameDuration: game.gameDuration,
+      ballSpeed: game.ballSpeed,
+      frameRate: game.frameRate,
     });
     io.to(game.players.player2.playerId).emit("gameStart", {
       gameMode: game.gameMode,
       gameDuration: game.gameDuration,
+      ballSpeed: game.ballSpeed,
+      frameRate: game.frameRate,
     });
   }, 1500);
 }
@@ -272,8 +289,24 @@ function handlePlayerDisconnect(disconnectedSocketId) {
 }
 
 // Game loop - runs independently of socket connections
-setInterval(() => {
-  games.forEach((game, index) => {
+let gameLoopIntervals = {};
+
+function startGameLoop(game) {
+  const fps = game.frameRate || 35;
+  
+  if (gameLoopIntervals[game.roomId]) {
+    clearInterval(gameLoopIntervals[game.roomId]);
+  }
+  
+  gameLoopIntervals[game.roomId] = setInterval(() => {
+    const gameIndex = games.findIndex(g => g.roomId === game.roomId);
+    if (gameIndex === -1) {
+      clearInterval(gameLoopIntervals[game.roomId]);
+      delete gameLoopIntervals[game.roomId];
+      return;
+    }
+    
+    const currentGame = games[gameIndex];
     const {
       ball,
       roomId,
@@ -283,7 +316,7 @@ setInterval(() => {
       gameMode,
       gameDuration,
       startTime,
-    } = game;
+    } = currentGame;
 
     // Check if time-based game has ended
     if (gameMode === "time" && startTime) {
@@ -298,7 +331,9 @@ setInterval(() => {
             : 0;
         io.to(players.player1.playerId).emit("gameOver", { winner, scores });
         io.to(players.player2.playerId).emit("gameOver", { winner, scores });
-        games.splice(index, 1);
+        clearInterval(gameLoopIntervals[roomId]);
+        delete gameLoopIntervals[roomId];
+        games.splice(gameIndex, 1);
         return;
       }
     }
@@ -334,7 +369,9 @@ setInterval(() => {
         io.to(players.player1.playerId).emit("gameOver", { winner, scores });
         io.to(players.player2.playerId).emit("gameOver", { winner, scores });
         // Remove the game from active games
-        games.splice(index, 1);
+        clearInterval(gameLoopIntervals[roomId]);
+        delete gameLoopIntervals[roomId];
+        games.splice(gameIndex, 1);
         return; // Exit this iteration since game is over
       }
     }
@@ -354,8 +391,11 @@ setInterval(() => {
     }
     io.to(players.player1.playerId).emit("updateBall", ball);
     io.to(players.player2.playerId).emit("updateBall", ball);
-  });
-}, 1000 / 35);
+  }, 1000 / fps);
+}
+
+// Start game loops for existing games
+games.forEach(game => startGameLoop(game));
 
 const PORT = process.env.PORT || 4000;
 

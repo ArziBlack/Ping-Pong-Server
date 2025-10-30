@@ -26,10 +26,27 @@ document.addEventListener("DOMContentLoaded", function () {
   const backToLobbyBtn = document.getElementById("backToLobbyBtn");
   const gameDurationInput = document.getElementById("gameDuration");
   const timeSettings = document.getElementById("timeSettings");
+  const ballSpeedInput = document.getElementById("ballSpeed");
+  const ballSpeedValue = document.getElementById("ballSpeedValue");
+  const frameRateSelect = document.getElementById("frameRate");
   
   let gameMode = "score"; // 'score' or 'time'
   let gameDuration = 60; // in seconds
+  let ballSpeed = 2; // 1-5
+  let frameRate = 35; // FPS
   let countdownInterval = null;
+
+  // Ball speed slider handler
+  ballSpeedInput.addEventListener("input", function () {
+    ballSpeed = parseInt(this.value);
+    const speedLabels = ["Very Slow", "Slow", "Normal", "Fast", "Very Fast"];
+    ballSpeedValue.innerText = speedLabels[ballSpeed - 1];
+  });
+
+  // Frame rate selector handler
+  frameRateSelect.addEventListener("change", function () {
+    frameRate = parseInt(this.value);
+  });
 
   let paddles = {
     other: { x: 0, y: 0, width: 10, height: 60, id: null },
@@ -98,7 +115,14 @@ document.addEventListener("DOMContentLoaded", function () {
     if (gameMode === "time") {
       gameDuration = parseInt(gameDurationInput.value) * 60; // Convert to seconds
     }
-    socket.emit("createPrivateGame", { gameMode, gameDuration });
+    ballSpeed = parseInt(ballSpeedInput.value);
+    frameRate = parseInt(frameRateSelect.value);
+    socket.emit("createPrivateGame", { 
+      gameMode, 
+      gameDuration, 
+      ballSpeed, 
+      frameRate 
+    });
   });
 
   // Back to lobby button handler
@@ -148,6 +172,8 @@ document.addEventListener("DOMContentLoaded", function () {
   socket.on("gameStart", function (data) {
     gameMode = data.gameMode;
     gameDuration = data.gameDuration;
+    ballSpeed = data.ballSpeed || 2;
+    frameRate = data.frameRate || 35;
     
     // Hide lobby/waiting and show game
     lobbyScreen.style.display = "none";
@@ -284,10 +310,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
   socket.on("gameOver", (data) => {
     const { winner, scores } = data;
-    const message =
-      winner === playerNumber
-        ? `You Win! Final Score - Player 1: ${scores.player1} | Player 2: ${scores.player2}`
-        : `You Lose! Final Score - Player 1: ${scores.player1} | Player 2: ${scores.player2}`;
 
     // Stop the timer
     if (timerInterval) {
@@ -297,11 +319,19 @@ document.addEventListener("DOMContentLoaded", function () {
       clearInterval(countdownInterval);
     }
 
-    alert(message);
+    // Calculate game duration
+    const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
 
-    // Optionally reload the page or redirect
-    setTimeout(() => {
-      window.location.reload();
-    }, 1000);
+    // Navigate to results page with game stats
+    const params = new URLSearchParams({
+      winner: winner,
+      p1: scores.player1,
+      p2: scores.player2,
+      mode: gameMode,
+      duration: elapsed,
+      player: playerNumber,
+    });
+
+    window.location.href = `/results.html?${params.toString()}`;
   });
 });
