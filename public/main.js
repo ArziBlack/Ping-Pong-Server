@@ -6,6 +6,9 @@ document.addEventListener("DOMContentLoaded", function () {
   let playerNumber;
   let gamePlay = {};
   let scores = {};
+  
+  // PixiJS Game Instance
+  let pixiGame = null;
 
   // UI Elements
   const lobbyScreen = document.getElementById("lobbyScreen");
@@ -13,6 +16,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const waitingScreen = document.getElementById("waitingScreen");
   const scoresElement = document.getElementById("scores");
   const gameContainer = document.getElementById("gameContainer");
+  const pixiContainer = document.getElementById("pixiContainer");
   const timerElement = document.getElementById("timer");
   const endGameBtn = document.getElementById("endGameBtn");
   const pauseGameBtn = document.getElementById("pauseGameBtn");
@@ -232,6 +236,12 @@ document.addEventListener("DOMContentLoaded", function () {
     ballSpeed = data.ballSpeed || 2;
     frameRate = data.frameRate || 35;
 
+    // Initialize PixiJS Game (GPU-accelerated)
+    if (!pixiGame) {
+      pixiGame = new PixiPongGame(pixiContainer);
+      console.log("PixiJS game initialized with WebGL renderer");
+    }
+
     // Hide lobby/waiting and show game
     lobbyScreen.style.display = "none";
     gameSettingsScreen.style.display = "none";
@@ -353,55 +363,30 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    // Draw the game state
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) {
-      alert(
-        "Error: Unable to initialize canvas. Your browser may not support the HTML5 canvas element."
+    // Update PixiJS game objects
+    if (pixiGame) {
+      // Update my paddle
+      pixiGame.updatePaddle(
+        playerNumber,
+        paddles.my.x,
+        paddles.my.y,
+        paddles.my.hitEffect
       );
-      return;
-    }
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Update other paddle
+      const otherPlayerNum = playerNumber === 1 ? 2 : 1;
+      pixiGame.updatePaddle(
+        otherPlayerNum,
+        paddles.other.x,
+        paddles.other.y,
+        paddles.other.hitEffect
+      );
 
-    // Draw paddles with hit effect
-    // My paddle
-    ctx.fillStyle = paddles.my.hitEffect ? "#FFD700" : "#000";
-    ctx.fillRect(
-      paddles.my.x,
-      paddles.my.y,
-      paddles.my.width,
-      paddles.my.height
-    );
+      // Update ball
+      pixiGame.updateBall(ball.x, ball.y);
 
-    // Other paddle
-    ctx.fillStyle = paddles.other.hitEffect ? "#FFD700" : "#000";
-    ctx.fillRect(
-      paddles.other.x,
-      paddles.other.y,
-      paddles.other.width,
-      paddles.other.height
-    );
-
-    // Draw ball
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-    ctx.fillStyle = "#FF4444";
-    ctx.fill();
-    ctx.closePath();
-
-    // Draw "PAUSED" text on canvas if paused
-    if (isPaused) {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = "#FFD700";
-      ctx.font = "bold 48px 'Press Start 2P', monospace";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("PAUSED", canvas.width / 2, canvas.height / 2);
+      // Update pause state
+      pixiGame.setPaused(isPaused);
     }
 
     // Request the next animation frame
